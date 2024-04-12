@@ -51,3 +51,23 @@ def get_file_paths(dataset_type):
         
     else:
         raise ValueError(f'Unknown dataset type {dataset_type}')
+
+def load_competitions(file_path):
+    '''Load competition data from a JSON file into the database.'''
+    pass
+
+def load_events(file_path):
+    '''Load event data from a JSON file into the database.'''
+    pass
+
+def load_lineups(file_path):
+    '''Load lineup data from a JSON file into the database.'''
+    pass
+
+def load_matches(file_path):
+    '''Load match data from a JSON file into the database.'''
+    pass
+
+def load_three_sixty(file_path):
+    '''Load three-sixty data from a JSON file into the database.'''
+    pass
