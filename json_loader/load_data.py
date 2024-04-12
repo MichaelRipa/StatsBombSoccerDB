@@ -12,8 +12,8 @@ def connect_db():
     conn = None
     try:
         print('Connecting to the PostgreSQL database...')
-        conn = psycopg2.connect(**DATABASE_CONFIG) 
-    except (Exception, psycopg2.DatabaseError) as error:
+        conn = psycopg.connect(**DATABASE_CONFIG) 
+    except (Exception, psycopg.DatabaseError) as error:
         print(error)
     return conn
 
@@ -53,35 +53,77 @@ def get_file_paths(dataset_type):
     else:
         raise ValueError(f'Unknown dataset type {dataset_type}')
 
-def load_competitions(file_path):
+def load_competitions(file_path, conn):
     '''Load competition data from a JSON file into the database.'''
     data = load_json(file_path) 
-    for entry in data:
-        competition_id = int(entry['competition_id'])
-        season_id = int(entry['season_id'])
-        country_name = entry['country_name']
-        competition_name = entry['competition_name']
-        competition_gender = entry['competition_gender']
-        competition_youth = bool(entry['competition_youth'])
-        competition_international = bool(entry['competition_international'])
 
-        # TODO: Consider whether I need to load in these attributes or not.
+    # SQL to get country_id from country_name
+    country_id_sql = "SELECT country_id FROM country WHERE country_name = %s;"
 
-        season_name = entry['season_name']
-        match_updated = entry['match_updated']
-        match_updated_360 = entry.get('match_updated_360')
-        match_available = entry['match_available']
-        match_available_360 = entry.get('match_available_360')
+    # SQL to insert data into the competition table
+    insert_sql = ''' 
+    INSERT INTO competition (
+        competition_id, 
+        competition_name, 
+        competition_gender, 
+        competition_youth, 
+        competition_international,
+        season_id, 
+        country_id,
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (competition_id) DO NOTHING;
+    '''
 
-        # Print extracted data for debugging
-        print(f"Competition ID: {competition_id}, Season ID: {season_id}, Country Name: {country_name}")
-        print(f"Competition Name: {competition_name}, Gender: {competition_gender}")
-        print(f"Youth: {competition_youth}, International: {competition_international}")
-        print(f"Season Name: {season_name}, Match Updated: {match_updated}")
-        print(f"Match Updated 360: {match_updated_360}, Match Available: {match_available}")
-        print(f"Match Available 360: {match_available_360}") 
-        print('\n')
-        
+    with conn.cursor() as cur:
+        for entry in data:
+            competition_id = int(entry['competition_id'])
+            season_id = int(entry['season_id'])
+            country_name = entry['country_name']
+            competition_name = entry['competition_name']
+            competition_gender = entry['competition_gender']
+            competition_youth = bool(entry['competition_youth'])
+            competition_international = bool(entry['competition_international'])
+
+            # TODO: Consider whether I need to load in these attributes or not.
+
+            season_name = entry['season_name']
+            match_updated = entry['match_updated']
+            match_updated_360 = entry.get('match_updated_360')
+            match_available = entry['match_available']
+            match_available_360 = entry.get('match_available_360')
+
+            # Get country_id from country_name
+            cur.execute(country_id_sql, (entry['country_name'],))
+            country_id = cur.fetchone()
+            if country_id:
+                country_id = country_id[0]
+
+            else:
+                print(f"Country name {entry['country_name']} not found in database.")
+                continue  # Skip this entry
+
+            # Execute the SQL insert statement
+            cur.execute(insert_sql, (
+                competition_id,
+                season_id,
+                country_name,
+                competition_name,
+                competition_gender,
+                competition_youth,
+                competition_international
+            ))
+
+            # Print extracted data for debugging
+            print(f"Competition ID: {competition_id}, Season ID: {season_id}, Country Name: {country_name}")
+            print(f"Competition Name: {competition_name}, Gender: {competition_gender}")
+            print(f"Youth: {competition_youth}, International: {competition_international}")
+            print(f"Season Name: {season_name}, Match Updated: {match_updated}")
+            print(f"Match Updated 360: {match_updated_360}, Match Available: {match_available}")
+            print(f"Match Available 360: {match_available_360}") 
+            print('\n')
+            
+    # Commit all changes to the database
+    conn.commit()
 
 def load_events(file_path):
     '''Load event data from a JSON file into the database.'''
@@ -242,26 +284,27 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', choices=['competitions','events','lineups','matches','three-sixty', 'all'])
     args = parser.parse_args()
     choice = args.dataset
+    conn = connect_db()
 
     if choice == 'competitions':
         paths = get_file_paths(choice)
-        load_competitions(paths[0])
+        load_competitions(paths[0], conn)
 
     elif choice == 'events':
         paths = get_file_paths(choice)
-        load_events(paths[0])
+        load_events(paths[0], conn)
 
     elif choice == 'lineups':
         paths = get_file_paths(choice)
-        load_lineups(paths[0])
+        load_lineups(paths[0], conn)
 
     elif choice == 'matches':
         paths = get_file_paths(choice)
-        load_matches(paths[0])
+        load_matches(paths[0], conn)
 
     elif choice == 'three-sixty':
         paths = get_file_paths(choice)
-        load_three_sixty(paths[0])
+        load_three_sixty(paths[0], conn)
 
     else:
         # TODO: Add desired run ordering
