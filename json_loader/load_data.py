@@ -125,166 +125,394 @@ def load_competitions(file_path, conn):
     # Commit all changes to the database
     conn.commit()
 
-def load_events(file_path):
+def load_events(file_path, conn):
     '''Load event data from a JSON file into the database.'''
     data = load_json(file_path) 
-    for entry in data:
-        event_id = entry['id']
-        index = entry['index']
-        period = entry['period']
-        timestamp = entry['timestamp']
-        minute = entry['minute']
-        second = entry['second']
-        
-        # Extracting data from nested 'type' dictionary
-        event_type_id = entry['type']['id']
-        event_type_name = entry['type']['name']
-        
-        possession = entry['possession']
-        
-        # Extracting data from nested 'possession_team' dictionary
-        possession_team_id = entry['possession_team']['id']
-        possession_team_name = entry['possession_team']['name']
-        
-        # Extracting data from nested 'play_pattern' dictionary
-        play_pattern_id = entry['play_pattern']['id']
-        play_pattern_name = entry['play_pattern']['name']
-        
-        # Extracting data from nested 'team' dictionary
-        team_id = entry['team']['id']
-        team_name = entry['team']['name']
-        
-        # Handling potentially missing 'related_events' key
-        related_events = entry.get('related_events', [])
-        
-        # Print extracted data for debugging
-        print(f"Event ID: {event_id}, Index: {index}, Period: {period}, Timestamp: {timestamp}")
-        print(f"Minute: {minute}, Second: {second}, Event Type: {event_type_id} - {event_type_name}")
-        print(f"Possession: {possession}, Possession Team: {possession_team_id} - {possession_team_name}")
-        print(f"Play Pattern: {play_pattern_id} - {play_pattern_name}, Team: {team_id} - {team_name}")
-        print(f"Related Events: {related_events}") 
-        print('\n')
 
-def load_lineups(file_path):
+    events_sql = '''
+    INSERT INTO events (event_id, match_id, event_index, period, timestamp, minute, second, event_type_id, possession, possession_team_id, play_pattern_id, team_id, location, duration, off_camera, under_pressure, counterpress, out)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    '''
+
+    # Extract match_id from filename (assuming file_path like '.../1234.json')
+    match_id = int(os.path.splitext(os.path.basename(file_path))[0])
+
+    with conn.cursor() as cur:
+        for entry in data:
+            event_id = entry['id']
+            index = entry['index']
+            period = entry['period']
+            timestamp = entry['timestamp']
+            minute = entry['minute']
+            second = entry['second']
+            
+            # Extracting data from nested 'type' dictionary
+            event_type_id = entry['type']['id']
+            event_type_name = entry['type']['name']
+            
+            possession = entry['possession']
+            
+            # Extracting data from nested 'possession_team' dictionary
+            possession_team_id = entry['possession_team']['id']
+            possession_team_name = entry['possession_team']['name']
+
+            # Convert 'location' if exists and is a list of two floats
+            location = tuple(entry['location']) if 'location' in entry and len(entry['location']) == 2 else None
+            duration = entry.get('duration')
+            
+            # Extracting data from nested 'play_pattern' dictionary
+            play_pattern_id = entry['play_pattern']['id']
+            play_pattern_name = entry['play_pattern']['name']
+            
+            # Extracting data from nested 'team' dictionary
+            team_id = entry['team']['id']
+            team_name = entry['team']['name']
+            
+            # Handling potentially missing 'related_events' key
+            related_events = entry.get('related_events', [])
+
+            off_camera = entry.get('off_camera', False)
+            under_pressure = entry.get('under_pressure', False)
+            counterpress = entry.get('counterpress', False)
+            out = entry.get('out', False)
+
+            # TODO: Handling event specific data (e.g. pass, shot)
+
+            # Print extracted data for debugging
+            print(f"Event ID: {event_id}, Index: {index}, Period: {period}, Timestamp: {timestamp}")
+            print(f"Minute: {minute}, Second: {second}, Event Type: {event_type_id} - {event_type_name}")
+            print(f"Possession: {possession}, Possession Team: {possession_team_id} - {possession_team_name}")
+            print(f"Play Pattern: {play_pattern_id} - {play_pattern_name}, Team: {team_id} - {team_name}")
+            print(f"Related Events: {related_events}") 
+            print(f"Location: {location}, Duration: {duration}")
+            print(f"Off Camera: {off_camera}, Under Pressure: {under_pressure}, Counterpress: {counterpress}, Out: {out}")
+            print('\n')
+
+            cur.execute(events_sql, (event_id, match_id, index, period, timestamp, minute, second, event_type_id, possession, possession_team_id, play_pattern_id, team_id, location, duration, off_camera, under_pressure, counterpress, out))
+            
+        conn.commit()
+
+def load_lineups(file_path, conn):
     '''Load lineup data from a JSON file into the database.'''
 
     data = load_json(file_path) 
-    for entry in data:
-        team_id = entry['team_id']
-        team_name = entry['team_name']
-        lineup = entry['lineup']
-        
-        for player in lineup:
-            player_id = player['player_id']
-            player_name = player['player_name']
-            player_nickname = player['player_nickname'] if player['player_nickname'] else None
-            jersey_number = player['jersey_number']
-            country_id = player['country']['id']
-            country_name = player['country']['name']
-            
-            cards = player['cards']  # List of cards if any
-            positions = player['positions']
-            
-            for position in positions:
-                position_id = position['position_id']
-                position_name = position['position']
-                from_time = position['from']
-                to_time = position['to'] if position['to'] else None
-                from_period = position['from_period']
-                to_period = position['to_period'] if position['to_period'] else None
-                start_reason = position['start_reason']
-                end_reason = position['end_reason']
 
-                # Print or process these details
-                print(f"Team ID: {team_id}, Team Name: {team_name}")
-                print(f"Player ID: {player_id}, Player Name: {player_name}, Nickname: {player_nickname}, Jersey Number: {jersey_number}")
-                print(f"Country ID: {country_id}, Country Name: {country_name}")
-                print(f"Position ID: {position_id}, Position Name: {position_name}")
-                print(f"From: {from_time}, To: {to_time}, From Period: {from_period}, To Period: {to_period}")
-                print(f"Start Reason: {start_reason}, End Reason: {end_reason}")
-                print(f"Cards: {cards}")
-                print('\n')
+    team_sql_query = ''' 
+    INSERT INTO team (team_id, team_name) VALUES (%s, %s)
+    ON CONFLICT (team_id) DO NOTHING;
+    '''
+    country_sql_query = ''' 
+    INSERT INTO country (country_id, country_name) VALUES (%s, %s)
+    ON CONFLICT (country_id) DO NOTHING;
+    '''
+    player_sql_query = ''' 
+    INSERT INTO player (player_id, player_name, player_nickname, jersey_number, country_id) VALUES (%s, %s, %s, %s, %s)
+    ON CONFLICT (player_id) DO NOTHING;
+    '''
+    position_event_sql_query = ''' 
+    INSERT INTO position_event (event_id, position_id, start_reason, end_reason, from_time, to_time, from_period, to_period) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (event_id, position_id) DO NOTHING;
+    '''
 
-def load_matches(file_path):
+    event_sql_query = '''
+    INSERT INTO events (match_id, event_type_id, timestamp)
+    VALUES (%s, %s, '00:00:00')
+    RETURNING event_id;
+    '''
+    
+    # Extract match_id from filename (assuming file_path like '.../1234.json')
+    match_id = int(os.path.splitext(os.path.basename(file_path))[0])
+
+    global pseudo_event_type_id 
+
+    with conn.cursor() as cur:
+        for entry in data:
+            team_id = entry['team_id']
+            team_name = entry['team_name']
+            lineup = entry['lineup']
+            
+            for player in lineup:
+                player_id = player['player_id']
+                player_name = player['player_name']
+                player_nickname = player['player_nickname'] if player['player_nickname'] else None
+                jersey_number = player['jersey_number']
+                country_id = player['country']['id']
+                country_name = player['country']['name']
+                
+                cards = player['cards']  # List of cards if any
+                positions = player['positions']
+                
+                for position in positions:
+                    position_id = position['position_id']
+                    position_name = position['position']
+                    from_time = position['from']
+                    to_time = position['to'] if position['to'] else None
+                    from_period = position['from_period']
+                    to_period = position['to_period'] if position['to_period'] else None
+                    start_reason = position['start_reason']
+                    end_reason = position['end_reason']
+
+            # Print extracted data for debugging
+            print(f"Team ID: {team_id}, Team Name: {team_name}")
+            print(f"Player ID: {player_id}, Player Name: {player_name}, Nickname: {player_nickname}, Jersey Number: {jersey_number}")
+            print(f"Country ID: {country_id}, Country Name: {country_name}")
+            print(f"Position ID: {position_id}, Position Name: {position_name}")
+            print(f"From: {from_time}, To: {to_time}, From Period: {from_period}, To Period: {to_period}")
+            print(f"Start Reason: {start_reason}, End Reason: {end_reason}")
+            print(f"Cards: {cards}")
+            print('\n')
+
+            # Insert a pseudo-event for the lineup
+            cur.execute(event_sql_query, (match_id, pseudo_event_type_id))
+            pseudo_event_id = cur.fetchone()[0] # Fetch the created event_id
+
+            # Insert team
+            cur.execute(team_sql_query, (team_id, team_name))
+
+            # Insert country
+            cur.execute(country_sql_query, (country_id, country_name))
+
+            # Insert player
+            cur.execute(player_sql_query, (player_id, player_name, player_nickname, jersey_number, country_id))
+            # Insert or update position information related to this event (player in lineup)
+            cur.execute(position_event_sql_query, (pseudo_event_id, player_id, position_id, start_reason, end_reason, from_time, to_time, from_period, to_period))
+
+    conn.commit()
+
+
+def load_matches(file_path, conn):
     '''Load match data from a JSON file into the database.'''
     data = load_json(file_path) 
-    for entry in data:
-        match_id = entry['match_id']
-        match_date = entry['match_date']
-        kick_off = entry['kick_off']
-        home_score = entry['home_score']
-        away_score = entry['away_score']
-        match_status = entry['match_status']
-        match_status_360 = entry['match_status_360']
-        last_updated = entry['last_updated']
-        last_updated_360 = entry['last_updated_360']
-        match_week = entry['match_week']
 
-        # Extracting data from nested dictionaries
-        competition_id = entry['competition']['competition_id']
-        competition_name = entry['competition']['competition_name']
-        season_id = entry['season']['season_id']
-        season_name = entry['season']['season_name']
+    match_sql = '''
+    INSERT INTO match (match_id, match_date, home_team_id, away_team_id, home_score, away_score, competition_id, season_id, stadium_id, referee_id)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (match_id) DO NOTHING;
+    '''
+    season_sql = '''
+    INSERT INTO season (season_id, season_name)
+    VALUES (%s, %s)
+    ON CONFLICT (season_id) DO NOTHING;
+    '''
+    country_sql = '''
+    INSERT INTO country (country_id, country_name)
+    VALUES (%s, %s)
+    ON CONFLICT (country_id) DO NOTHING;
+    '''
+    team_sql = '''
+    INSERT INTO team (team_id, team_name, team_gender, country_id)
+    VALUES (%s, %s, %s, %s)
+    ON CONFLICT (team_id) DO NOTHING;
+    '''
+    stadium_sql = '''
+    INSERT INTO stadium (stadium_id, name, country_id)
+    VALUES (%s, %s, %s)
+    ON CONFLICT (stadium_id) DO NOTHING;
+    '''
+    referee_sql = '''
+    INSERT INTO referee (referee_id, name, country_id)
+    VALUES (%s, %s, %s)
+    ON CONFLICT (referee_id) DO NOTHING;
+    '''
+    comp_stage_sql = '''
+    INSERT INTO competition_stage (stage_id, name)
+    VALUES (%s, %s)
+    ON CONFLICT (stage_id) DO NOTHING;
+    '''
+    comp_sql = ''' 
+    INSERT INTO competition (competition_id, competition_name, season_id, country_id)
+    VALUES (%s, %s, %s, %s)
+    ON CONFLICT (competition_id) DO NOTHING;
+    '''
 
-        home_team_id = entry['home_team']['home_team_id']
-        home_team_name = entry['home_team']['home_team_name']
+    with conn.cursor() as cur:
+        for entry in data:
+            match_id = entry['match_id']
+            match_date = entry['match_date']
+            kick_off = entry['kick_off']
+            home_score = entry['home_score']
+            away_score = entry['away_score']
+            match_status = entry['match_status']
+            match_status_360 = entry['match_status_360']
+            last_updated = entry['last_updated']
+            last_updated_360 = entry['last_updated_360']
+            match_week = entry['match_week']
 
-        away_team_id = entry['away_team']['away_team_id']
-        away_team_name = entry['away_team']['away_team_name']
+            # Extracting data for populating a minimal entry for competition
+            competition_id, competition_name, competition_country_name = None, None, None
+            if hasattr(entry, 'competition'):
+                competition_id = entry['competition']['competition_id']
+                competition_name = entry['competition']['competition_name']
+                competition_country_name = entry['competition']['country_name']
 
-        competition_stage_id = entry['competition_stage']['id']
-        competition_stage_name = entry['competition_stage']['name']
+            season_id = entry['season']['season_id']
+            season_name = entry['season']['season_name']
 
-        stadium_id = entry['stadium']['id']
-        stadium_name = entry['stadium']['name']
+            home_team_id = entry['home_team']['home_team_id']
+            home_team_name = entry['home_team']['home_team_name']
+            home_team_gender = entry['home_team']['home_team_gender']
+            home_country = entry['home_team']['country']
 
-        referee_id = entry['referee']['id']
-        referee_name = entry['referee']['name']
+            away_team_id = entry['away_team']['away_team_id']
+            away_team_name = entry['away_team']['away_team_name']
+            away_team_gender = entry['away_team']['away_team_gender']
+            away_country = entry['away_team']['country']
 
-        # Handling managers, which is a list of dictionaries
-        home_team_managers = entry['home_team']['managers']
-        away_team_managers = entry['away_team']['managers']
+            competition_stage_id = entry['competition_stage']['id']
+            competition_stage_name = entry['competition_stage']['name']
 
-        # Print extracted data for debugging
-        print(f"Match ID: {match_id}, Match Date: {match_date}, Kick Off: {kick_off}")
-        print(f"Home Score: {home_score}, Away Score: {away_score}, Match Status: {match_status}")
-        print(f"Competition ID: {competition_id}, Season ID: {season_id}")
-        print(f"Home Team: {home_team_id} - {home_team_name}, Away Team: {away_team_id} - {away_team_name}")
-        print(f"Stadium: {stadium_id} - {stadium_name}, Referee: {referee_id} - {referee_name}")
-        print(f"Home Team Managers: {home_team_managers}, Away Team Managers: {away_team_managers}")
-        print('\n')
+            # Certain entries don't have stadium attributes
+            stadium_id, stadium_name, stadium_country = None, None, None
+            if hasattr(entry, 'stadium'):
+                stadium_id = entry['stadium']['id']
+                stadium_name = entry['stadium']['name']
+                stadium_country = entry['stadium']['country']
+
+            # Certain entries don't have referee attributes
+            referee_id, referee_name, referee_country = None, None, None
+            if hasattr(entry, 'referee'):
+                referee_id = entry['referee']['id']
+                referee_name = entry['referee']['name']
+                referee_country = entry['referee']['country']
+
+            # Handling managers, which is a list of dictionaries
+            #home_team_managers = entry['home_team']['managers']
+            #away_team_managers = entry['away_team']['managers']
+
+            # Print extracted data for debugging
+            print(f"Match ID: {match_id}, Match Date: {match_date}, Kick Off: {kick_off}")
+            print(f"Home Score: {home_score}, Away Score: {away_score}, Match Status: {match_status}")
+            print(f"Competition ID: {competition_id}, Season ID: {season_id}")
+            print(f"Home Team: {home_team_id} - {home_team_name}, Away Team: {away_team_id} - {away_team_name}")
+            print(f"Stadium: {stadium_id} - {stadium_name}, Referee: {referee_id} - {referee_name}")
+            #print(f"Home Team Managers: {home_team_managers}, Away Team Managers: {away_team_managers}")
+            print('\n')
+
+            #Inserting Season
+            cur.execute(season_sql, (season_id, season_name))
+
+            # Inserting countries
+            all_countries = [away_country, home_country]
+            if referee_id is not None:
+                all_countries.append(referee_country)
+            if stadium_id is not None:
+                all_countries.append(stadium_country)
+
+            for c in all_countries:
+                cur.execute(country_sql, (c['id'], c['name']))
+
+            # Check to see if the competition country matches any present country
+            competition_country_id = None
+            for c in all_countries:
+                if c['name'] == competition_country_name:
+                    competition_country_id = c['id']
+
+            if competition_id is None:
+                pass # Skip inserting as this match doesn't have a competition linked
+            elif competition_country_id is None:
+                print(f'Error: Cannot insert competition {competition_name} as its country {competition_country_name} is not the same as any of the current match object countries')
+            else:
+                # We now can insert into the competition table
+                cur.execute(comp_sql, (competition_id, competition_name, season_id, competition_country_id))
+
+            # Let's hope that the competition already existed in the DB if the above clause fails...
+
+            # Inserting teams
+            cur.execute(team_sql, (home_team_id, home_team_name, home_team_gender, home_country['id']))
+            cur.execute(team_sql, (away_team_id, away_team_name, away_team_gender, away_country['id']))
+
+            # Inserting stadium
+            if stadium_id is not None:
+                cur.execute(stadium_sql,  (stadium_id, stadium_name, stadium_country['id']))
+
+            # Inserting referee
+            if referee_id is not None:
+                cur.execute(referee_sql,  (referee_id, referee_name, referee_country['id']))
+
+            # Inserting competition stage
+
+            # Leaving omitted for now; don't need it for our usecase.
+            #cur.execute(comp_stage_sql (competition_stage_id, competition_stage_name))
+
+            # Also omitting adding managers for now.
 
 
-def load_three_sixty(file_path):
+            # Inserting match
+            cur.execute(match_sql, (match_id, match_date, home_team_id, away_team_id, home_score, away_score, competition_id, season_id, stadium_id, referee_id))
+
+        conn.commit()
+
+def load_three_sixty(file_path, conn):
     '''Load three-sixty data from a JSON file into the database.'''
     data = load_json(file_path) 
-    for entry in data:
-        event_uuid = entry['event_uuid']
-        visible_area = entry['visible_area']  # This is a list representing a polygon
-        freeze_frame = entry['freeze_frame']  # This is a list of dictionaries
 
-        # Print the basic data
-        print(f"Event UUID: {event_uuid}")
-        print(f"Visible Area Coordinates: {visible_area}")
+    three_sixty_sql = '''
+    INSERT INTO three_sixty (event_uuid, visible_area)
+    VALUES (%s, %s)
+    '''
+    freeze_frame_sql = '''
+    INSERT INTO freeze_frames (event_uuid, teammate, actor, keeper, location)
+    VALUES (%s, %s, %s, %s, POINT(%s, %s))
+    '''
+    with conn.cursor() as cur:
+        for entry in data:
+            event_uuid = entry['event_uuid']
+            visible_area = entry['visible_area']  # This is a list representing a polygon
+            freeze_frame = entry['freeze_frame']  # This is a list of dictionaries
 
-        # Process each freeze frame entry
-        for ff in freeze_frame:
-            teammate = ff['teammate']
-            actor = ff['actor']
-            keeper = ff['keeper']
-            location = ff['location']
+            # Print the basic data
+            print(f"Event UUID: {event_uuid}")
+            print(f"Visible Area Coordinates: {visible_area}")
 
-            # Print or process these details
-            print(f"Teammate: {teammate}, Actor: {actor}, Keeper: {keeper}, Location: {location}")
-         
-        print('\n')
+            # Skip polygons which do not contain pairs of coordinates
+            if len(visible_area) % 2 != 0:
+                break
+            # Convert list to a PostgreSQL polygon format
+            polygon_format = ','.join(f'{visible_area[i]} {visible_area[i+1]}' for i in range(0, len(visible_area), 2))
+            polygon_value = f'POLYGON(({polygon_format}))'
+            cur.execute(three_sixty_sql, (event_uuid, polygon_value))
+
+            # Process each freeze frame entry
+            for ff in freeze_frame:
+                teammate = ff['teammate']
+                actor = ff['actor']
+                keeper = ff['keeper']
+                location = ff['location']
+
+                # Print or process these details
+                print(f"Teammate: {teammate}, Actor: {actor}, Keeper: {keeper}, Location: {location}")
+
+                cur.execute(freeze_frame_sql, (event_uuid, teammate, actor, keeper, location))
+
+            print('\n')
+
+    conn.commit()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', choices=['competitions','events','lineups','matches','three-sixty', 'all'])
+    parser.add_argument('--dataset', default = 'all', choices=['competitions','events','lineups','matches','three-sixty', 'all'])
     args = parser.parse_args()
     choice = args.dataset
     conn = connect_db()
+
+    # Attempt to insert the generic event if it does not exist
+    insert_pseudo_event_sql = ''' 
+    INSERT INTO event_type (name)
+    SELECT 'Lineup Setup'
+    WHERE NOT EXISTS (
+        SELECT 1 FROM event_type WHERE name = 'Lineup Setup'
+    );
+    ''' 
+    get_pseudo_event_id_sql = ''' 
+    SELECT event_type_id FROM event_type WHERE name = 'Lineup Setup';
+    '''
+    with conn.cursor() as cur:
+        cur.execute(insert_pseudo_event_sql)
+        conn.commit()  # Commit any changes if the insert has occurred
+
+        # Retrieve the ID of 'Lineup Setup', whether it was just inserted or already existed
+        cur.execute(get_pseudo_event_id_sql)
+        pseudo_event_type_id = cur.fetchone()[0]  # fetchone() returns a tuple, and we need the first element
 
     if choice == 'competitions':
         paths = get_file_paths(choice)
@@ -307,5 +535,6 @@ if __name__ == '__main__':
         load_three_sixty(paths[0], conn)
 
     else:
-        # TODO: Add desired run ordering
-        pass
+        match_paths = get_file_paths('matches')
+        for p in match_paths:
+            load_matches(p, conn)
