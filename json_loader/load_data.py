@@ -3,6 +3,7 @@
 import argparse
 from glob import glob
 import json
+import uuid
 import os
 import psycopg
 from config import DATABASE_CONFIG, DATASET_PATH
@@ -53,7 +54,12 @@ def get_file_paths(dataset_type):
     else:
         raise ValueError(f'Unknown dataset type {dataset_type}')
 
-def load_competitions(file_path, conn):
+# TODO:
+# Currently, there is a country "Europe" which was not found in the matches
+# Also, this currently does not actully update the DB, it just inserts.
+# It should check if the compettion_id exists first, and update if so
+
+def load_competitions(file_path, conn, test):
     '''Load competition data from a JSON file into the database.'''
     data = load_json(file_path) 
 
@@ -62,22 +68,15 @@ def load_competitions(file_path, conn):
 
     # SQL to insert data into the competition table
     insert_sql = ''' 
-    INSERT INTO competition (
-        competition_id, 
-        competition_name, 
-        competition_gender, 
-        competition_youth, 
-        competition_international,
-        season_id, 
-        country_id,
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+    INSERT INTO competition (competition_id, competition_name, competition_gender, competition_youth, competition_international, season_id, country_id) 
+    VALUES (%s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (competition_id) DO NOTHING;
     '''
 
     with conn.cursor() as cur:
         for entry in data:
-            competition_id = int(entry['competition_id'])
-            season_id = int(entry['season_id'])
+            competition_id = entry['competition_id']
+            season_id = entry['season_id']
             country_name = entry['country_name']
             competition_name = entry['competition_name']
             competition_gender = entry['competition_gender']
@@ -105,12 +104,12 @@ def load_competitions(file_path, conn):
             # Execute the SQL insert statement
             cur.execute(insert_sql, (
                 competition_id,
-                season_id,
-                country_name,
                 competition_name,
                 competition_gender,
                 competition_youth,
-                competition_international
+                competition_international,
+                season_id,
+                country_id
             ))
 
             # Print extracted data for debugging
@@ -125,13 +124,23 @@ def load_competitions(file_path, conn):
     # Commit all changes to the database
     conn.commit()
 
-def load_events(file_path, conn):
+def load_events(file_path, conn, test):
     '''Load event data from a JSON file into the database.'''
     data = load_json(file_path) 
 
-    events_sql = '''
+    '''
+    events_sql = 
     INSERT INTO events (event_id, match_id, event_index, period, timestamp, minute, second, event_type_id, possession, possession_team_id, play_pattern_id, team_id, location, duration, off_camera, under_pressure, counterpress, out)
     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    '''
+    events_sql = '''
+    INSERT INTO events (event_id, match_id, event_index, period, timestamp, minute, second, possession, possession_team_id, team_id, location, duration, off_camera, under_pressure, counterpress, out)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    '''
+
+    shot_sql = '''
+    INSERT INTO shot (event_id, statsbomb_xg, first_time)
+    VALUES (%s, %s, %s)
     '''
 
     # Extract match_id from filename (assuming file_path like '.../1234.json')
@@ -176,7 +185,25 @@ def load_events(file_path, conn):
             counterpress = entry.get('counterpress', False)
             out = entry.get('out', False)
 
-            # TODO: Handling event specific data (e.g. pass, shot)
+            recipient_id, length, angle, height_id, end_location, body_part_id, type_id = None, None, None, None, None, None, None
+            # TODO: Extract passes
+            if hasattr(entry, 'pass'):
+                if entry['pass'] is not None:
+                   pass 
+
+            # TODO: Extract shots (xG scores, outcomes etc.)
+            statsbomb_xg, first_time = None, None 
+            if hasattr(entry, 'shot'):
+                if entry['shot'] is not None:
+                    statsbomb_xg = entry['shot']['statsbomb_xg']
+                    first_time = entry['shot']['first_time']
+                    
+            
+
+            # TODO: Extract dribbles
+            if hasattr(entry, 'dribble'):
+                if entry['dribble'] is not None:
+                    pass
 
             # Print extracted data for debugging
             print(f"Event ID: {event_id}, Index: {index}, Period: {period}, Timestamp: {timestamp}")
@@ -188,11 +215,12 @@ def load_events(file_path, conn):
             print(f"Off Camera: {off_camera}, Under Pressure: {under_pressure}, Counterpress: {counterpress}, Out: {out}")
             print('\n')
 
-            cur.execute(events_sql, (event_id, match_id, index, period, timestamp, minute, second, event_type_id, possession, possession_team_id, play_pattern_id, team_id, location, duration, off_camera, under_pressure, counterpress, out))
-            
+            cur.execute(events_sql, (event_id, match_id, index, period, timestamp, minute, second, possession, possession_team_id, team_id, location, duration, off_camera, under_pressure, counterpress, out))
+            if statsbomb_xg is not None:
+                cur.execute(shot_sql, (event_id, statsbomb_xg, first_time)) 
         conn.commit()
 
-def load_lineups(file_path, conn):
+def load_lineups(file_path, conn, test):
     '''Load lineup data from a JSON file into the database.'''
 
     data = load_json(file_path) 
@@ -215,8 +243,8 @@ def load_lineups(file_path, conn):
     '''
 
     event_sql_query = '''
-    INSERT INTO events (match_id, event_type_id, timestamp)
-    VALUES (%s, %s, '00:00:00')
+    INSERT INTO events (event_id, match_id, event_type_id, timestamp)
+    VALUES (%s, %s, %s, '00:00:00')
     RETURNING event_id;
     '''
     
@@ -236,8 +264,11 @@ def load_lineups(file_path, conn):
                 player_name = player['player_name']
                 player_nickname = player['player_nickname'] if player['player_nickname'] else None
                 jersey_number = player['jersey_number']
-                country_id = player['country']['id']
-                country_name = player['country']['name']
+
+                country_id, country_name = None, None
+                if hasattr(player, 'country'):
+                    country_id = player['country']['id']
+                    country_name = player['country']['name']
                 
                 cards = player['cards']  # List of cards if any
                 positions = player['positions']
@@ -262,25 +293,27 @@ def load_lineups(file_path, conn):
             print(f"Cards: {cards}")
             print('\n')
 
+            event_id = uuid.uuid4()
             # Insert a pseudo-event for the lineup
-            cur.execute(event_sql_query, (match_id, pseudo_event_type_id))
+            cur.execute(event_sql_query, (event_id, match_id, pseudo_event_type_id))
             pseudo_event_id = cur.fetchone()[0] # Fetch the created event_id
 
             # Insert team
             cur.execute(team_sql_query, (team_id, team_name))
 
             # Insert country
-            cur.execute(country_sql_query, (country_id, country_name))
+            if country_id is not None:
+                cur.execute(country_sql_query, (country_id, country_name))
 
             # Insert player
             cur.execute(player_sql_query, (player_id, player_name, player_nickname, jersey_number, country_id))
             # Insert or update position information related to this event (player in lineup)
-            cur.execute(position_event_sql_query, (pseudo_event_id, player_id, position_id, start_reason, end_reason, from_time, to_time, from_period, to_period))
+            #cur.execute(position_event_sql_query, (pseudo_event_id, player_id, position_id, start_reason, end_reason, from_time, to_time, from_period, to_period))
 
     conn.commit()
 
 
-def load_matches(file_path, conn):
+def load_matches(file_path, conn, test):
     '''Load match data from a JSON file into the database.'''
     data = load_json(file_path) 
 
@@ -347,6 +380,17 @@ def load_matches(file_path, conn):
 
             season_id = entry['season']['season_id']
             season_name = entry['season']['season_name']
+
+            # This filters for a subset of the seasons and competitions of desired focus for this project.
+            if test:
+                #if competition_name == 'La Liga' and season_name in ['2020/2021', '2019/2020', '2018/2019']:
+                if season_name in ['2020/2021', '2019/2020', '2018/2019']:
+                    pass
+                #elif competition_name == 'Premier League' and season_name in ['2003/2004']:
+                elif season_name in ['2003/2004']:
+                    pass
+                else:
+                    continue
 
             home_team_id = entry['home_team']['home_team_id']
             home_team_name = entry['home_team']['home_team_name']
@@ -491,6 +535,7 @@ def load_three_sixty(file_path, conn):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', default = 'all', choices=['competitions','events','lineups','matches','three-sixty', 'all'])
+    parser.add_argument('--test', default = True, type = bool)
     args = parser.parse_args()
     choice = args.dataset
     conn = connect_db()
@@ -535,6 +580,23 @@ if __name__ == '__main__':
         load_three_sixty(paths[0], conn)
 
     else:
+        '''
+        # First, populate from the matches dataset
         match_paths = get_file_paths('matches')
         for p in match_paths:
-            load_matches(p, conn)
+            load_matches(p, conn, False)
+        # Next, populate from the compettions dataset
+        competition_paths = get_file_paths('competitions')
+        for p in competition_paths:
+            load_competitions(p, conn, args.test)
+        # Then, populate from the lineups dataset.
+        lineup_paths = get_file_paths('lineups')
+        for p in lineup_paths:
+            load_lineups(p, conn, args.test)
+                
+        '''
+        # Finally, populate the events dataset (we skip the three-sixty for our usecase)
+        events_paths = get_file_paths('events')
+        for p in events_paths:
+           load_events(p, conn, args.test)
+         
